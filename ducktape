@@ -1,0 +1,79 @@
+#!/usr/bin/env python
+
+
+import os
+import sys
+import argparse
+from twisted.application import internet
+from twisted.internet import reactor
+from twisted.python import log
+from twisted.web import server, static, proxy
+from twisted.web.resource import NoResource
+from twisted.web.util import redirectTo
+
+
+class Logger(server.Site):
+    def log(self, request):
+        line = '%s: %s - %s' % (request.getClientIP(), request.method, request.uri)
+        print(line)
+
+
+class ProxyResource(proxy.ReverseProxyResource):
+    def getChild(self, path, request):
+        if path == '':
+            return proxy.ReverseProxyResource(
+                self.host, self.port, '/')
+        return proxy.ReverseProxyResource.getChild(self, path, request)
+
+    def render(self, request):
+        return redirectTo(request.uri + '/', request)
+
+
+class TapeResource(static.File):
+    def __init__(self, cwd, host, pp):
+        static.File.__init__(self, cwd,
+                             defaultType='text/plain')
+        self.proxy = ProxyResource(host, pp, b"")
+
+    def createSimilarFile(self, path):
+        return static.File(path, defaultType='text/plain')
+
+    def getChild(self, path, request):
+        uri = '.' + request.uri.decode('utf-8')
+        exist = os.path.isfile(uri)
+        print(uri, exist)
+        if not exist:
+            # non static file, send request to proxy
+            return self.proxy.getChild(b'/' + path, request)
+        else:
+            # file on disk, serve
+            return super().getChild(path, request)
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(description='DuckTape: simple reverse proxy for local development.')
+    parser.add_argument('directory', nargs='?', type=str, default='.',
+                        help='working directory, default: \'.\'')
+    parser.add_argument('-H', '--host', nargs='?', type=str, default='localhost',
+                        help='host of the proxy, default: localhost')
+    parser.add_argument('-P', '--proxy-port', nargs='?', type=int, default=8000,
+                        help='listening port of the proxy, default: 8000')
+    parser.add_argument('-p', '--port', nargs='?', type=int, default=8080,
+                        help='listening port, default: 8080')
+    # parser.add_argument('-F', '--forward-index', action='store_true', default=False,
+                        # help='forward requests from "/" to "/index.html", default: False')
+    return vars(parser.parse_args(argv))
+
+
+def main():
+    args = parse_args(sys.argv[1:])
+    cdir = args['directory']
+    if args['directory'] != '.':
+        os.chdir(cdir)
+    site = Logger(TapeResource(cdir, args['host'], args['proxy_port']))
+    service = internet.TCPServer(args['port'], site)
+    service.startService()
+    reactor.run()
+
+if __name__ == '__main__':
+    main()
