@@ -72,7 +72,7 @@ class TapeResource(static.File):
     def ping(self):
         if not self.firstCall:
             self.firstCall = True
-            pass
+            return
         try:
             d = self.agent.request(
                 b'GET',
