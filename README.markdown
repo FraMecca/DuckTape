@@ -21,6 +21,9 @@ To install DuckTape, place the `ducktape` executable somewhere in your path.
 Every time DuckTape receives a connection, it check if the file exists in the folder it is serving;
 if the file exists it is served directly, if it does not DuckTape acts as a reverse proxy.
 
+DuckTape also offers an option to check if the service that is being proxied is down
+and shutting down if that is the case
+
 ```
 usage: tape [-h] [-H HOST] [-P PROXY_PORT] [-p PORT] [directory]
 
@@ -35,6 +38,10 @@ optional arguments:
   -P PROXY_PORT, --proxy-port PROXY_PORT
                         listening port of the proxy, default: 8000
   -p PORT, --port PORT  listening port, default: 8080
+  -u [PING], --ping [PING]
+  	  check if service is up by requesting the uri, default: off
+  -r [REPEAT], --repeat [REPEAT]
+  	  repeat ping every n seconds, default: 30
 ```
 
 Example:

@@ -5,11 +5,19 @@ import os
 import sys
 import argparse
 from twisted.application import internet
-from twisted.internet import reactor
-from twisted.python import log
+from twisted.internet import reactor, task
+# from twisted.python import log
 from twisted.web import server, static, proxy
 from twisted.web.resource import NoResource
 from twisted.web.util import redirectTo
+from twisted.web.client import Agent
+from twisted.web.http_headers import Headers
+
+
+def serviceDown(ign):
+    print("Backend is down, shutting down", file=sys.stderr)
+    reactor.stop()
+    sys.exit(2)
 
 
 class Logger(server.Site):
@@ -30,10 +38,22 @@ class ProxyResource(proxy.ReverseProxyResource):
 
 
 class TapeResource(static.File):
-    def __init__(self, cwd, host, pp):
+    def __init__(self, cwd, host, pp, ping, timeout):
         static.File.__init__(self, cwd,
                              defaultType='text/plain')
         self.proxy = ProxyResource(host, pp, b"")
+
+        # request uri if ping specified
+        # hardcoded 30 seconds
+        if ping != '':
+            self.timeout = timeout
+            if not 'http://' == host[:7]:
+                host = 'http://' + host
+            self.agentUrl = b''.join([host.encode('utf-8'), b':', str(pp).encode('utf-8'), b'/', ping.encode('utf-8')])
+            self.agent = Agent(reactor)
+            self.lc = task.LoopingCall(self.ping)
+            self.lc.start(self.timeout)
+
 
     def createSimilarFile(self, path):
         return static.File(path, defaultType='text/plain')
@@ -41,13 +61,25 @@ class TapeResource(static.File):
     def getChild(self, path, request):
         uri = '.' + request.uri.decode('utf-8')
         exist = os.path.isfile(uri)
-        print(uri, exist)
         if not exist:
             # non static file, send request to proxy
             return self.proxy.getChild(b'/' + path, request)
         else:
             # file on disk, serve
             return super().getChild(path, request)
+
+    def ping(self):
+        try:
+            d = self.agent.request(
+                b'GET',
+                self.agentUrl,
+                Headers({'User-Agent': ['DuckTape ping service']}),
+                None)
+            d.addErrback(serviceDown)
+        except:
+            # should call errBack
+            pass
+
 
 
 def parse_args(argv):
@@ -60,17 +92,26 @@ def parse_args(argv):
                         help='listening port of the proxy, default: 8000')
     parser.add_argument('-p', '--port', nargs='?', type=int, default=8080,
                         help='listening port, default: 8080')
+    parser.add_argument('-u', '--ping', nargs='?', type=str, default='',
+                        help='check if service is up by requesting the uri, default: off')
+    parser.add_argument('-r', '--repeat', nargs='?', type=int, default=30,
+                        help='repeat ping every n seconds, default: 30')
     # parser.add_argument('-F', '--forward-index', action='store_true', default=False,
                         # help='forward requests from "/" to "/index.html", default: False')
     return vars(parser.parse_args(argv))
 
 
 def main():
+    if ('-r' in sys.argv or '--repeat' in sys.argv) and ('-u' not in sys.argv or '--ping' in sys.argv):
+        print("Usage: ducktape [options] folder", file = sys.stderr)
+        sys.exit(2)
+
     args = parse_args(sys.argv[1:])
     cdir = args['directory']
     if args['directory'] != '.':
         os.chdir(cdir)
-    site = Logger(TapeResource(cdir, args['host'], args['proxy_port']))
+    site = Logger(TapeResource(cdir, args['host'], args['proxy_port'],
+                              args['ping'], args['repeat']))
     service = internet.TCPServer(args['port'], site)
     service.startService()
     reactor.run()
