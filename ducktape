@@ -51,6 +51,7 @@ class TapeResource(static.File):
                 host = 'http://' + host
             self.agentUrl = b''.join([host.encode('utf-8'), b':', str(pp).encode('utf-8'), b'/', ping.encode('utf-8')])
             self.agent = Agent(reactor)
+            self.firstCall = False
             self.lc = task.LoopingCall(self.ping)
             self.lc.start(self.timeout)
 
@@ -69,6 +70,9 @@ class TapeResource(static.File):
             return super().getChild(path, request)
 
     def ping(self):
+        if not self.firstCall:
+            self.firstCall = True
+            pass
         try:
             d = self.agent.request(
                 b'GET',
