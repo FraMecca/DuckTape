@@ -75,7 +75,7 @@ class TapeResource(static.File):
             return
         try:
             d = self.agent.request(
-                b'GET',
+                b'HEAD',
                 self.agentUrl,
                 Headers({'User-Agent': ['DuckTape ping service']}),
                 None)
